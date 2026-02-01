@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Dashboard - Infrastructure Reporting</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <header class="admin-header">
+            <div class="admin-header-content">
+                <h1>⚙️ Admin Dashboard</h1>
+                <div class="admin-actions">
+                    <span class="admin-welcome">Welcome, {{ session.admin_username }}</span>
+                    <a href="{{ url_for('admin_logout') }}" class="btn btn-logout">Logout</a>
+                </div>
+            </div>
+        </header>
+
+        <div class="dashboard-stats">
+            <div class="stat-card">
+                <h3>Total Reports</h3>
+                <p class="stat-number">{{ reports|length }}</p>
+            </div>
+            <div class="stat-card">
+                <h3>Pending</h3>
+                <p class="stat-number">{{ reports|selectattr('status', 'equalto', 'Pending')|list|length }}</p>
+            </div>
+            <div class="stat-card">
+                <h3>Resolved</h3>
+                <p class="stat-number">{{ reports|selectattr('status', 'equalto', 'Resolved')|list|length }}</p>
+            </div>
+        </div>
+
+        <div class="admin-controls">
+            <select id="admin-status-filter">
+                <option value="all">All Reports</option>
+                <option value="Pending">Pending Only</option>
+                <option value="Resolved">Resolved Only</option>
+            </select>
+        </div>
+
+        <div class="admin-reports-list" id="admin-reports-list">
+            {% for report in reports %}
+                <div class="admin-report-card" data-status="{{ report.status }}">
+                    <div class="report-header">
+                        <div class="report-id-section">
+                            <strong>Report #{{ report.id }}</strong>
+                            <span class="status-badge status-{{ report.status.lower() }}">{{ report.status }}</span>
+                        </div>
+                        <div class="report-date">
+                            Reported: {{ report.date_reported }}
+                        </div>
+                    </div>
+
+                    <div class="report-description">
+                        <p>{{ report.description }}</p>
+                    </div>
+
+                    <div class="report-location">
+                        <p><strong>Location:</strong> {{ "%.6f"|format(report.latitude) }}, {{ "%.6f"|format(report.longitude) }}</p>
+                    </div>
+
+                    <div class="report-images">
+                        <div class="image-section">
+                            <h4>📸 Before</h4>
+                            <img src="{{ url_for('uploaded_before_file', filename=report.before_image) }}" 
+                                 alt="Hazard before resolution" 
+                                 class="admin-hazard-image">
+                        </div>
+                        
+                        {% if report.after_image %}
+                            <div class="image-section">
+                                <h4>✅ After</h4>
+                                <img src="{{ url_for('uploaded_after_file', filename=report.after_image) }}" 
+                                     alt="Hazard after resolution" 
+                                     class="admin-hazard-image">
+                            </div>
+                        {% endif %}
+                    </div>
+
+                    {% if report.status == 'Pending' %}
+                        <div class="resolution-section">
+                            <h4>🔄 Resolve Hazard</h4>
+                            <div class="resolution-controls">
+                                <button class="btn btn-resolve" onclick="openResolutionModal({{ report.id }})">
+                                    📷 Upload Resolution Photo
+                                </button>
+                            </div>
+                        </div>
+                    {% elif report.status == 'Resolved' and report.date_resolved %}
+                        <div class="resolution-info">
+                            <p><strong>✅ Resolved:</strong> {{ report.date_resolved }}</p>
+                        </div>
+                    {% endif %}
+                </div>
+            {% endfor %}
+        </div>
+    </div>
+
+    <!-- Resolution Modal -->
+    <div id="resolution-modal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>📷 Upload Resolution Photo</h3>
+                <button class="modal-close" onclick="closeResolutionModal()">&times;</button>
+            </div>
+            
+            <div class="modal-body">
+                <input type="hidden" id="modal-report-id">
+                
+                <div class="modal-camera-section">
+                    <video id="modal-camera-feed" autoplay muted playsinline style="display: none;"></video>
+                    <canvas id="modal-capture-canvas" style="display: none;"></canvas>
+                    
+                    <div class="modal-camera-controls">
+                        <button id="modal-start-camera" class="btn btn-primary">Open Camera</button>
+                        <button id="modal-capture-btn" class="btn btn-success" style="display: none;">📷 Capture</button>
+                        <button id="modal-retake-btn" class="btn btn-secondary" style="display: none;">🔄 Retake</button>
+                    </div>
+                    
+                    <div id="modal-captured-preview" class="modal-image-preview" style="display: none;">
+                        <img id="modal-captured-image" alt="Captured resolution">
+                    </div>
+                </div>
+                
+                <div class="modal-actions">
+                    <button id="modal-submit-resolution" class="btn btn-submit" disabled>
+                        ✅ Mark as Resolved
+                    </button>
+                    <button class="btn btn-secondary" onclick="closeResolutionModal()">Cancel</button>
+                </div>
+                
+                <div id="modal-status" class="modal-status"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentReportId = null;
+        let modalCameraStream = null;
+
+        // Modal functions
+        function openResolutionModal(reportId) {
+            currentReportId = reportId;
+            document.getElementById('modal-report-id').value = reportId;
+            document.getElementById('resolution-modal').style.display = 'flex';
+            document.body.style.overflow = 'hidden';
+        }
+
+        function closeResolutionModal() {
+            document.getElementById('resolution-modal').style.display = 'none';
+            document.body.style.overflow = 'auto';
+            
+            // Stop camera if running
+            if (modalCameraStream) {
+                modalCameraStream.getTracks().forEach(track => track.stop());
+                modalCameraStream = null;
+            }
+            
+            // Reset modal state
+            resetModalState();
+            currentReportId = null;
+        }
+
+        function resetModalState() {
+            document.getElementById('modal-camera-feed').style.display = 'none';
+            document.getElementById('modal-capture-btn').style.display = 'none';
+            document.getElementById('modal-retake-btn').style.display = 'none';
+            document.getElementById('modal-start-camera').style.display = 'inline-block';
+            document.getElementById('modal-captured-preview').style.display = 'none';
+            document.getElementById('modal-submit-resolution').disabled = true;
+            document.getElementById('modal-status').innerHTML = '';
+        }
+
+        // Modal camera functionality
+        document.getElementById('modal-start-camera').addEventListener('click', async function() {
+            try {
+                modalCameraStream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { 
+                        facingMode: 'environment',
+                        width: { ideal: 1280 },
+                        height: { ideal: 720 }
+                    } 
+                });
+                
+                const video = document.getElementById('modal-camera-feed');
+                video.srcObject = modalCameraStream;
+                video.style.display = 'block';
+                
+                this.style.display = 'none';
+                document.getElementById('modal-capture-btn').style.display = 'inline-block';
+                
+            } catch (error) {
+                console.error('Error accessing camera:', error);
+                alert('Unable to access camera. Please check permissions.');
+            }
+        });
+
+        document.getElementById('modal-capture-btn').addEventListener('click', function() {
+            const video = document.getElementById('modal-camera-feed');
+            const canvas = document.getElementById('modal-capture-canvas');
+            const context = canvas.getContext('2d');
+            
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            context.drawImage(video, 0, 0);
+            
+            const imageData = canvas.toDataURL('image/jpeg', 0.8);
+            
+            document.getElementById('modal-captured-image').src = imageData;
+            document.getElementById('modal-captured-preview').style.display = 'block';
+            
+            video.style.display = 'none';
+            this.style.display = 'none';
+            document.getElementById('modal-retake-btn').style.display = 'inline-block';
+            document.getElementById('modal-submit-resolution').disabled = false;
+        });
+
+        document.getElementById('modal-retake-btn').addEventListener('click', function() {
+            document.getElementById('modal-captured-preview').style.display = 'none';
+            document.getElementById('modal-camera-feed').style.display = 'block';
+            this.style.display = 'none';
+            document.getElementById('modal-capture-btn').style.display = 'inline-block';
+            document.getElementById('modal-submit-resolution').disabled = true;
+        });
+
+        // Submit resolution
+        document.getElementById('modal-submit-resolution').addEventListener('click', async function() {
+            const submitBtn = this;
+            const statusDiv = document.getElementById('modal-status');
+            const capturedImage = document.getElementById('modal-captured-image').src;
+            const reportId = document.getElementById('modal-report-id').value;
+            
+            if (!capturedImage) {
+                statusDiv.innerHTML = '<p class="text-error">❌ Please capture a resolution photo</p>';
+                return;
+            }
+            
+            // Show loading state
+            submitBtn.disabled = true;
+            submitBtn.textContent = '⏳ Processing...';
+            statusDiv.innerHTML = '<p class="text-info">⏳ Uploading resolution...</p>';
+            
+            try {
+                const response = await fetch(`/admin/resolve/${reportId}`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        after_image: capturedImage
+                    })
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok && result.success) {
+                    statusDiv.innerHTML = `
+                        <p class="text-success">✅ Hazard marked as resolved!</p>
+                    `;
+                    
+                    // Reload page after delay to show updated status
+                    setTimeout(() => {
+                        location.reload();
+                    }, 2000);
+                } else {
+                    throw new Error(result.error || 'Unknown error occurred');
+                }
+            } catch (error) {
+                statusDiv.innerHTML = `<p class="text-error">❌ Error: ${error.message}</p>`;
+                submitBtn.disabled = false;
+                submitBtn.textContent = '✅ Mark as Resolved';
+            }
+        });
+
+        // Filter functionality for admin
+        document.getElementById('admin-status-filter').addEventListener('change', function() {
+            const selectedStatus = this.value.toLowerCase();
+            const reportCards = document.querySelectorAll('.admin-report-card');
+            
+            reportCards.forEach(card => {
+                const cardStatus = card.getAttribute('data-status').toLowerCase();
+                
+                if (selectedStatus === 'all' || cardStatus === selectedStatus) {
+                    card.style.display = 'block';
+                } else {
+                    card.style.display = 'none';
+                }
+            });
+        });
+
+        // Close modal when clicking outside
+        document.getElementById('resolution-modal').addEventListener('click', function(e) {
+            if (e.target === this) {
+                closeResolutionModal();
+            }
+        });
+    </script>
+</body>
+</html>

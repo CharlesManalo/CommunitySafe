@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Infrastructure Hazard Reporting</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🚧 Report Hazard</h1>
+            <p>Help keep our infrastructure safe</p>
+        </header>
+
+        <div class="report-form">
+            <!-- Camera Section -->
+            <div class="camera-section">
+                <h2>📸 Capture Hazard</h2>
+                <div class="camera-container">
+                    <video id="camera-feed" autoplay muted playsinline></video>
+                    <canvas id="capture-canvas" style="display: none;"></canvas>
+                    <div class="camera-controls">
+                        <button id="start-camera" class="btn btn-primary">Open Camera</button>
+                        <button id="capture-btn" class="btn btn-success" style="display: none;">📷 Capture</button>
+                        <button id="retake-btn" class="btn btn-secondary" style="display: none;">🔄 Retake</button>
+                    </div>
+                </div>
+                <div id="captured-image-preview" class="image-preview" style="display: none;">
+                    <img id="captured-image" alt="Captured hazard">
+                </div>
+            </div>
+
+            <!-- Location Section -->
+            <div class="location-section">
+                <h2>📍 Location</h2>
+                <div class="location-controls">
+                    <button id="get-location" class="btn btn-primary">Get My Location</button>
+                </div>
+                <div id="location-info" class="location-info" style="display: none;">
+                    <p><strong>Latitude:</strong> <span id="latitude"></span></p>
+                    <p><strong>Longitude:</strong> <span id="longitude"></span></p>
+                    <p class="text-success">✅ Location captured</p>
+                </div>
+                <div id="location-error" class="error-message" style="display: none;">
+                    <p class="text-error">❌ Unable to get location. Please enable location services.</p>
+                </div>
+            </div>
+
+            <!-- Description Section -->
+            <div class="description-section">
+                <h2>📝 Description</h2>
+                <textarea 
+                    id="hazard-description" 
+                    placeholder="Describe the hazard (e.g., pothole, broken sidewalk, damaged sign)..."
+                    rows="4"
+                    required
+                ></textarea>
+            </div>
+
+            <!-- Submit Section -->
+            <div class="submit-section">
+                <button id="submit-report" class="btn btn-submit btn-lg" disabled>
+                    📤 Submit Report
+                </button>
+                <div id="submit-status" class="submit-status"></div>
+            </div>
+        </div>
+
+        <!-- Navigation -->
+        <nav class="bottom-nav">
+            <a href="{{ url_for('index') }}" class="nav-item active">
+                <span class="nav-icon">📸</span>
+                <span class="nav-text">Report</span>
+            </a>
+            <a href="{{ url_for('history') }}" class="nav-item">
+                <span class="nav-icon">📋</span>
+                <span class="nav-text">History</span>
+            </a>
+            <a href="{{ url_for('admin_login') }}" class="nav-item">
+                <span class="nav-icon">🔐</span>
+                <span class="nav-text">Admin</span>
+            </a>
+        </nav>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/camera.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/location.js') }}"></script>
+    <script>
+        // Report submission handler
+        document.getElementById('submit-report').addEventListener('click', async function() {
+            const submitBtn = this;
+            const statusDiv = document.getElementById('submit-status');
+            
+            // Validate all required fields
+            const capturedImage = document.getElementById('captured-image').src;
+            const latitude = document.getElementById('latitude').textContent;
+            const longitude = document.getElementById('longitude').textContent;
+            const description = document.getElementById('hazard-description').value.trim();
+            
+            if (!capturedImage || !latitude || !longitude || !description) {
+                statusDiv.innerHTML = '<p class="text-error">❌ Please complete all fields</p>';
+                return;
+            }
+            
+            // Prepare data
+            const reportData = {
+                before_image: capturedImage,
+                latitude: parseFloat(latitude),
+                longitude: parseFloat(longitude),
+                description: description
+            };
+            
+            // Show loading state
+            submitBtn.disabled = true;
+            submitBtn.textContent = '📤 Submitting...';
+            statusDiv.innerHTML = '<p class="text-info">⏳ Submitting report...</p>';
+            
+            try {
+                const response = await fetch('/api/report', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(reportData)
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok && result.success) {
+                    statusDiv.innerHTML = `
+                        <p class="text-success">✅ Report submitted successfully!</p>
+                        <p class="text-info">Report ID: #${result.report_id}</p>
+                    `;
+                    
+                    // Reset form after delay
+                    setTimeout(() => {
+                        resetForm();
+                    }, 3000);
+                } else {
+                    throw new Error(result.error || 'Unknown error occurred');
+                }
+            } catch (error) {
+                statusDiv.innerHTML = `<p class="text-error">❌ Error: ${error.message}</p>`;
+                submitBtn.disabled = false;
+                submitBtn.textContent = '📤 Submit Report';
+            }
+        });
+        
+        function resetForm() {
+            // Reset camera
+            document.getElementById('camera-feed').style.display = 'none';
+            document.getElementById('capture-btn').style.display = 'none';
+            document.getElementById('retake-btn').style.display = 'none';
+            document.getElementById('start-camera').style.display = 'inline-block';
+            document.getElementById('captured-image-preview').style.display = 'none';
+            
+            // Reset location
+            document.getElementById('location-info').style.display = 'none';
+            document.getElementById('latitude').textContent = '';
+            document.getElementById('longitude').textContent = '';
+            
+            // Reset description
+            document.getElementById('hazard-description').value = '';
+            
+            // Reset submit button
+            document.getElementById('submit-report').disabled = true;
+            document.getElementById('submit-status').innerHTML = '';
+            
+            // Stop camera stream if active
+            if (window.cameraStream) {
+                window.cameraStream.getTracks().forEach(track => track.stop());
+                window.cameraStream = null;
+            }
+        }
+        
+        // Enable submit button when all fields are filled
+        function checkFormComplete() {
+            const capturedImage = document.getElementById('captured-image').src;
+            const latitude = document.getElementById('latitude').textContent;
+            const longitude = document.getElementById('longitude').textContent;
+            const description = document.getElementById('hazard-description').value.trim();
+            
+            const isComplete = capturedImage && latitude && longitude && description;
+            document.getElementById('submit-report').disabled = !isComplete;
+        }
+        
+        // Add event listeners for form validation
+        document.getElementById('hazard-description').addEventListener('input', checkFormComplete);
+        
+        // Initialize form check
+        checkFormComplete();
+    </script>
+</body>
+</html>

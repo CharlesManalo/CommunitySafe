@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hazard History - Infrastructure Reporting</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>📋 Hazard History</h1>
+            <p>Track reported infrastructure hazards</p>
+        </header>
+
+        <div class="history-controls">
+            <div class="filter-controls">
+                <select id="status-filter">
+                    <option value="all">All Status</option>
+                    <option value="Pending">Pending</option>
+                    <option value="Resolved">Resolved</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="reports-list" id="reports-list">
+            {% if reports %}
+                {% for report in reports %}
+                    <div class="report-card" data-status="{{ report.status }}">
+                        <div class="report-header">
+                            <div class="report-id">
+                                <strong>Report #{{ report.id }}</strong>
+                                <span class="status-badge status-{{ report.status.lower() }}">{{ report.status }}</span>
+                            </div>
+                            <div class="report-date">
+                                {{ report.date_reported }}
+                            </div>
+                        </div>
+
+                        <div class="report-description">
+                            <p>{{ report.description }}</p>
+                        </div>
+
+                        <div class="report-images">
+                            <div class="image-container">
+                                <h4>Before</h4>
+                                <img src="{{ url_for('uploaded_before_file', filename=report.before_image) }}" 
+                                     alt="Hazard before resolution" 
+                                     class="hazard-image">
+                            </div>
+                            {% if report.after_image %}
+                                <div class="image-container">
+                                    <h4>After</h4>
+                                    <img src="{{ url_for('uploaded_after_file', filename=report.after_image) }}" 
+                                         alt="Hazard after resolution" 
+                                         class="hazard-image">
+                                </div>
+                            {% endif %}
+                        </div>
+
+                        <div class="report-location">
+                            <p><strong>Location:</strong> {{ "%.6f"|format(report.latitude) }}, {{ "%.6f"|format(report.longitude) }}</p>
+                            {% if report.status == 'Resolved' and report.date_resolved %}
+                                <p><strong>Resolved:</strong> {{ report.date_resolved }}</p>
+                            {% endif %}
+                        </div>
+                    </div>
+                {% endfor %}
+            {% else %}
+                <div class="no-reports">
+                    <p>📭 No hazard reports found</p>
+                    <p>Be the first to report an infrastructure hazard!</p>
+                </div>
+            {% endif %}
+        </div>
+
+        <!-- Navigation -->
+        <nav class="bottom-nav">
+            <a href="{{ url_for('index') }}" class="nav-item">
+                <span class="nav-icon">📸</span>
+                <span class="nav-text">Report</span>
+            </a>
+            <a href="{{ url_for('history') }}" class="nav-item active">
+                <span class="nav-icon">📋</span>
+                <span class="nav-text">History</span>
+            </a>
+            <a href="{{ url_for('admin_login') }}" class="nav-item">
+                <span class="nav-icon">🔐</span>
+                <span class="nav-text">Admin</span>
+            </a>
+        </nav>
+    </div>
+
+    <script>
+        // Filter functionality
+        document.getElementById('status-filter').addEventListener('change', function() {
+            const selectedStatus = this.value.toLowerCase();
+            const reportCards = document.querySelectorAll('.report-card');
+            
+            reportCards.forEach(card => {
+                const cardStatus = card.getAttribute('data-status').toLowerCase();
+                
+                if (selectedStatus === 'all' || cardStatus === selectedStatus) {
+                    card.style.display = 'block';
+                } else {
+                    card.style.display = 'none';
+                }
+            });
+        });
+
+        // Add fade-in animation for report cards
+        document.addEventListener('DOMContentLoaded', function() {
+            const cards = document.querySelectorAll('.report-card');
+            cards.forEach((card, index) => {
+                card.style.opacity = '0';
+                card.style.transform = 'translateY(20px)';
+                
+                setTimeout(() => {
+                    card.style.transition = 'opacity 0.5s ease, transform 0.5s ease';
+                    card.style.opacity = '1';
+                    card.style.transform = 'translateY(0)';
+                }, index * 100);
+            });
+        });
+    </script>
+</body>
+</html>
